@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neon-green: #39FF14;
+  --color-neon-red: #FF3131;
+  --color-dark-bg: #0F172A;
+  --color-dark-card: #1E293B;
+}
+
+@layer base {
+  body {
+    @apply bg-dark-bg text-slate-100 antialiased selection:bg-neon-green selection:text-black;
+  }
+}
