@@ -65,7 +65,10 @@ export const AuthProvider = ({ children }) => {
     const value = {
         signUp: (data) => supabase.auth.signUp(data),
         signIn: (data) => supabase.auth.signInWithPassword(data),
-        signOut: () => supabase.auth.signOut(),
+        signOut: async () => {
+            sessionStorage.removeItem('hasSeenWelcome')
+            return supabase.auth.signOut()
+        },
         user,
         profiles,
         activeProfile,

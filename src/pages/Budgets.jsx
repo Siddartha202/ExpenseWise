@@ -17,16 +17,37 @@ export function Budgets() {
         if (activeProfile) {
             fetchBudgets()
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeProfile])
 
     const fetchBudgets = async () => {
         try {
-            const { data, error } = await supabase
+            // Fetch Budgets
+            const { data: budgetsData, error: budgetsError } = await supabase
                 .from('budgets')
                 .select('*')
                 .eq('profile_id', activeProfile.id)
-            if (error) throw error
-            setBudgets(data)
+            if (budgetsError) throw budgetsError
+
+            // Fetch Expenses to calculate "spent"
+            const { data: transactionsData, error: txtError } = await supabase
+                .from('transactions')
+                .select('category, amount, date')
+                .eq('profile_id', activeProfile.id)
+                .eq('type', 'expense')
+            if (txtError) throw txtError
+
+            const enrichedBudgets = budgetsData.map(b => {
+                // b.month is format "2026-02-01"
+                const budgetMonth = b.month.slice(0, 7)
+                const spent = transactionsData
+                    .filter(t => t.category === b.category && t.date.startsWith(budgetMonth))
+                    .reduce((sum, t) => sum + Number(t.amount), 0)
+
+                return { ...b, spent }
+            })
+
+            setBudgets(enrichedBudgets)
         } catch (error) {
             console.error('Error fetching budgets:', error)
         }
@@ -57,7 +78,7 @@ export function Budgets() {
             fetchBudgets()
         } catch (error) {
             console.error(error)
-            setMessage('Failed to set budget. Wait for database connection.')
+            setMessage(`Failed: ${error.message || error.details || 'Wait for database connection'}`)
         } finally {
             setLoading(false)
         }

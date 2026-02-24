@@ -1,24 +1,36 @@
 import { useState, useEffect } from 'react'
-import { Wallet, TrendingUp, TrendingDown, Activity, DollarSign, Plus, ArrowRight } from 'lucide-react'
+import { Wallet, TrendingUp, TrendingDown, Hash, Pointer, Plus, Minus } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
+import { format } from 'date-fns'
 
-
-const COLORS = ['#39FF14', '#0ea5e9', '#8b5cf6', '#FF3131', '#f59e0b']
+const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#f59e0b', '#14b8a6', '#f97316']
 
 export function Dashboard() {
-    const { activeProfile, user } = useAuth()
+    const { activeProfile } = useAuth()
     const [stats, setStats] = useState({ income: 0, expenses: 0, balance: 0, count: 0 })
     const [pieData, setPieData] = useState([])
-    const [lineData, setLineData] = useState([])
-    const [recentTransactions, setRecentTransactions] = useState([])
+    const [budgets, setBudgets] = useState([])
     const [loading, setLoading] = useState(true)
+    const [showWelcome, setShowWelcome] = useState(false)
+
+    const currentMonthLabel = format(new Date(), 'MMMM yyyy')
 
     useEffect(() => {
         if (!activeProfile) return
+
+        // Check if we should show the welcome screen
+        if (!sessionStorage.getItem('hasSeenWelcome')) {
+            setShowWelcome(true)
+            sessionStorage.setItem('hasSeenWelcome', 'true')
+
+            // Hide welcome screen after 3 seconds
+            setTimeout(() => {
+                setShowWelcome(false)
+            }, 3000)
+        }
 
         const fetchData = async () => {
             setLoading(true)
@@ -28,7 +40,6 @@ export function Dashboard() {
                     .from('transactions')
                     .select('*')
                     .eq('profile_id', activeProfile.id)
-                    .order('date', { ascending: true })
 
                 if (error) throw error
 
@@ -52,31 +63,15 @@ export function Dashboard() {
 
                 setPieData(Object.entries(categoryTotals).map(([name, value]) => ({ name, value })))
 
-                // 4. Prepare Line Chart Data (Last 6 Months)
-                const months = Array.from({ length: 6 }).map((_, i) => {
-                    const d = subMonths(new Date(), 5 - i)
-                    return format(d, 'MMM')
-                })
-
-                const trendData = months.map(m => {
-                    const monthTrans = transactions.filter(t => format(new Date(t.date), 'MMM') === m)
-                    return {
-                        name: m,
-                        income: monthTrans.filter(t => t.type === 'income').reduce((sum, t) => sum + Number(t.amount), 0),
-                        expenses: monthTrans.filter(t => t.type === 'expense').reduce((sum, t) => sum + Number(t.amount), 0),
-                    }
-                })
-                setLineData(trendData)
-
-                // 5. Fetch Recent Transactions
-                const { data: recent, error: recentError } = await supabase
-                    .from('transactions')
+                // 4. Fetch Budgets
+                const { data: budgetData, error: budgetError } = await supabase
+                    .from('budgets')
                     .select('*')
                     .eq('profile_id', activeProfile.id)
-                    .order('date', { ascending: false }, { created_at: false })
-                    .limit(5)
 
-                if (!recentError) setRecentTransactions(recent)
+                if (!budgetError && budgetData) {
+                    setBudgets(budgetData)
+                }
 
             } catch (err) {
                 console.error('Error loading dashboard data:', err)
@@ -88,189 +83,165 @@ export function Dashboard() {
         fetchData()
     }, [activeProfile])
 
-    if (loading) return <div className="flex h-full items-center justify-center"><Activity className="animate-spin text-emerald-500 w-8 h-8" /></div>
+    // Wait until loading is done or welcome screen finishes
+    if (loading && !showWelcome) return <div className="flex h-full items-center justify-center"><Wallet className="animate-spin text-emerald-500 w-8 h-8" /></div>
+
+    // Show Welcome Screen overlay
+    if (showWelcome) {
+        return (
+            <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-emerald-500 animate-out fade-out fill-mode-forwards duration-1000 delay-2000">
+                <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 ease-out flex flex-col items-center text-center px-6">
+                    <div className="bg-white p-5 rounded-3xl shadow-xl shadow-emerald-600/20 mb-6">
+                        <Wallet className="w-16 h-16 text-emerald-500" />
+                    </div>
+                    <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight leading-tight">
+                        WELCOME TO <br /> <span className="text-emerald-100">EXPENSEWISE</span>
+                    </h1>
+                </div>
+            </div>
+        )
+    }
 
     return (
-        <div className="space-y-6">
-            <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <div>
-                    <h1 className="text-3xl font-bold text-white tracking-tight">Dashboard Overview</h1>
-                    <p className="text-slate-400 mt-1">Here's your financial summary at a glance.</p>
-                </div>
-                <div className="flex gap-3">
-                    <Link
-                        to="/add-transaction?type=income"
-                        className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/20"
-                    >
-                        <Plus className="w-5 h-5" /> Add Income
-                    </Link>
-                    <Link
-                        to="/add-transaction?type=expense"
-                        className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-slate-700 transition-all shadow-lg"
-                    >
-                        <Plus className="w-5 h-5 text-rose-500" /> Add Expense
-                    </Link>
-                </div>
-            </header>
+        <div className="space-y-6 pb-20">
+            {/* Action Buttons */}
+            <div className="flex gap-3 mb-6">
+                <Link
+                    to="/add-transaction?type=income"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-2xl transition-all shadow-[0_4px_14px_0_rgba(16,185,129,0.39)]"
+                >
+                    <Plus className="w-5 h-5" /> Add Income
+                </Link>
+                <Link
+                    to="/add-transaction?type=expense"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-2xl border border-slate-200 transition-all shadow-sm"
+                >
+                    <Minus className="w-5 h-5 text-rose-500" /> Add Expenses
+                </Link>
+            </div>
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm relative overflow-hidden group hover:border-emerald-500/50 transition-colors">
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition-all"></div>
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-slate-400 font-medium">Total Income</h3>
-                        <div className="bg-emerald-500/10 p-2 rounded-lg">
-                            <TrendingUp className="w-5 h-5 text-emerald-400" />
-                        </div>
+            {/* KPI Cards Grid */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex items-center gap-4">
+                    <div className="bg-emerald-50 p-3 rounded-xl shrink-0">
+                        <TrendingUp className="w-6 h-6 text-emerald-500" />
                     </div>
-                    <p className="text-3xl font-bold text-white mt-4">₹{stats.income.toLocaleString()}</p>
+                    <div>
+                        <p className="text-xs font-medium text-slate-400">Income</p>
+                        <p className="text-xl font-bold text-slate-900">₹{stats.income.toLocaleString()}</p>
+                    </div>
                 </div>
 
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm relative overflow-hidden group hover:border-rose-500/50 transition-colors">
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl group-hover:bg-rose-500/20 transition-all"></div>
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-slate-400 font-medium">Total Expenses</h3>
-                        <div className="bg-rose-500/10 p-2 rounded-lg">
-                            <TrendingDown className="w-5 h-5 text-rose-400" />
-                        </div>
+                <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex items-center gap-4">
+                    <div className="bg-emerald-50 p-3 rounded-xl shrink-0">
+                        <TrendingDown className="w-6 h-6 text-emerald-500" />
                     </div>
-                    <p className="text-3xl font-bold text-white mt-4">₹{stats.expenses.toLocaleString()}</p>
+                    <div>
+                        <p className="text-xs font-medium text-slate-400">Expenses</p>
+                        <p className="text-xl font-bold text-slate-900">₹{stats.expenses.toLocaleString()}</p>
+                    </div>
                 </div>
 
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm relative overflow-hidden group hover:border-blue-500/50 transition-colors">
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all"></div>
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-slate-400 font-medium">Balance</h3>
-                        <div className="bg-blue-500/10 p-2 rounded-lg">
-                            <DollarSign className="w-5 h-5 text-blue-400" />
-                        </div>
+                <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex items-center gap-4">
+                    <div className="bg-emerald-50 p-3 rounded-xl shrink-0">
+                        <Wallet className="w-6 h-6 text-emerald-500" />
                     </div>
-                    <p className="text-3xl font-bold text-white mt-4">₹{stats.balance.toLocaleString()}</p>
+                    <div>
+                        <p className="text-xs font-medium text-slate-400">Balance</p>
+                        <p className="text-xl font-bold text-slate-900">₹{stats.balance.toLocaleString()}</p>
+                    </div>
                 </div>
 
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm relative overflow-hidden group hover:border-purple-500/50 transition-colors">
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-purple-500/10 rounded-full blur-2xl group-hover:bg-purple-500/20 transition-all"></div>
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-slate-400 font-medium">Transactions</h3>
-                        <div className="bg-purple-500/10 p-2 rounded-lg">
-                            <Activity className="w-5 h-5 text-purple-400" />
-                        </div>
+                <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] flex items-center gap-4">
+                    <div className="bg-emerald-50 p-3 rounded-xl shrink-0">
+                        <Hash className="w-6 h-6 text-emerald-500" />
                     </div>
-                    <p className="text-3xl font-bold text-white mt-4">{stats.count}</p>
+                    <div>
+                        <p className="text-xs font-medium text-slate-400">Transactions</p>
+                        <p className="text-xl font-bold text-slate-900">{stats.count}</p>
+                    </div>
                 </div>
             </div>
 
-            {/* Charts Layer */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-
-                {/* Pie Chart */}
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl lg:col-span-1 flex flex-col items-center">
-                    <h3 className="text-lg font-bold text-white self-start w-full mb-6 relative">
-                        Expense Breakdown
-                        <div className="absolute -bottom-2 left-0 w-8 h-1 bg-emerald-500 rounded-full"></div>
-                    </h3>
-                    <div className="w-full h-64 flex-1">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={pieData.length > 0 ? pieData : [{ name: 'No Data', value: 1 }]}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                    stroke="none"
-                                >
-                                    {pieData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                    {pieData.length === 0 && <Cell fill="#1e293b" />}
-                                </Pie>
-                                {pieData.length > 0 && (
-                                    <>
-                                        <Tooltip
-                                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px', color: '#fff' }}
-                                            itemStyle={{ color: '#fff' }}
-                                        />
-                                        <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} />
-                                    </>
-                                )}
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-
-                {/* Line Chart */}
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl lg:col-span-2 flex flex-col">
-                    <h3 className="text-lg font-bold text-white mb-6 relative">
-                        Spending Trends
-                        <div className="absolute -bottom-2 left-0 w-8 h-1 bg-blue-500 rounded-full"></div>
-                    </h3>
-                    <div className="w-full h-64 flex-1">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart
-                                data={lineData}
-                                margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+            {/* Expense Breakdown Donut Chart */}
+            <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+                <h3 className="text-lg font-medium text-slate-800 mb-4">Expense Breakdown</h3>
+                <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={pieData.length > 0 ? pieData : [{ name: 'No Data', value: 1 }]}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={70}
+                                outerRadius={100}
+                                paddingAngle={2}
+                                dataKey="value"
+                                stroke="none"
                             >
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                <XAxis dataKey="name" stroke="#64748b" axisLine={false} tickLine={false} dy={10} fontSize={12} />
-                                <YAxis stroke="#64748b" axisLine={false} tickLine={false} dx={-10} fontSize={12} tickFormatter={(val) => `₹${val}`} />
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px', color: '#fff' }}
-                                    itemStyle={{ color: '#fff' }}
+                                {pieData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                                {pieData.length === 0 && <Cell fill="#f1f5f9" />}
+                            </Pie>
+                            {pieData.length > 0 && (
+                                <Legend
+                                    verticalAlign="bottom"
+                                    height={36}
+                                    iconType="circle"
+                                    wrapperStyle={{ fontSize: '13px', color: '#64748b', textAlign: 'left', display: 'flex', flexWrap: 'wrap', gap: '10px' }}
                                 />
-                                <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '12px', color: '#94a3b8' }} iconType="circle" />
-                                <Line type="monotone" dataKey="income" name="Income" stroke="#39FF14" strokeWidth={3} dot={{ r: 4, fill: '#39FF14' }} activeDot={{ r: 6 }} />
-                                <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#FF3131" strokeWidth={3} dot={{ r: 4, fill: '#FF3131' }} activeDot={{ r: 6 }} />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </div>
+                            )}
+                        </PieChart>
+                    </ResponsiveContainer>
                 </div>
-
             </div>
 
-            {/* Recent Transactions List */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mt-6">
-                <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-bold text-white relative">
-                        Recent Transactions
-                        <div className="absolute -bottom-2 left-0 w-8 h-1 bg-purple-500 rounded-full"></div>
-                    </h3>
-                    <Link to="/add-transaction" className="text-sm font-medium text-emerald-400 hover:text-emerald-300 flex items-center gap-1 group">
-                        View More <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                    </Link>
-                </div>
+            {/* Monthly Budgets */}
+            <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
+                <h3 className="text-lg font-medium text-slate-800 mb-5">Monthly Budgets — {currentMonthLabel}</h3>
 
                 <div className="space-y-4">
-                    {recentTransactions.length > 0 ? (
-                        recentTransactions.map((t) => (
-                            <div key={t.id} className="flex items-center justify-between p-4 bg-slate-950/50 border border-slate-800 rounded-xl hover:border-slate-700 transition-colors">
-                                <div className="flex items-center gap-4">
-                                    <div className={`p-2 rounded-lg ${t.type === 'income' ? 'bg-emerald-500/10' : 'bg-rose-500/10'}`}>
-                                        {t.type === 'income' ? (
-                                            <TrendingUp className="w-5 h-5 text-emerald-400" />
-                                        ) : (
-                                            <TrendingDown className="w-5 h-5 text-rose-400" />
-                                        )}
+                    {budgets.length > 0 ? (
+                        budgets.map((b) => {
+                            // Map categories to emojis similarly to user's implementation
+                            const emojis = {
+                                'Food': '🍕',
+                                'Transport': '🚗',
+                                'Bills': '🧾',
+                                'Entertainment': '🎮',
+                                'Shopping': '🛍️',
+                                'Health': '💊',
+                                'Other': '📦'
+                            }
+                            const emoji = emojis[b.category] || '📦'
+
+                            return (
+                                <div key={b.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 last:pb-0">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xl">{emoji}</span>
+                                        <span className="font-medium text-slate-700">{b.category}</span>
                                     </div>
-                                    <div>
-                                        <p className="font-bold text-white">{t.category}</p>
-                                        <p className="text-xs text-slate-500">{format(new Date(t.date), 'MMM dd, yyyy')}</p>
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-slate-500 font-medium">₹{Number(b.amount).toLocaleString()}</span>
+                                        <Link to="/set-budget" className="text-sm font-medium text-emerald-500 hover:text-emerald-600">
+                                            Set budget
+                                        </Link>
                                     </div>
                                 </div>
-                                <div className={`text-lg font-bold ${t.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {t.type === 'income' ? '+' : '-'} ₹{Number(t.amount).toLocaleString()}
-                                </div>
-                            </div>
-                        ))
+                            )
+                        })
                     ) : (
-                        <div className="text-center py-10 text-slate-500 bg-slate-950/30 rounded-xl border border-dashed border-slate-800">
-                            No transactions found. Start by adding one!
+                        <div className="text-center py-6">
+                            <p className="text-slate-400 text-sm mb-3">No budgets set for this month</p>
+                            <Link to="/set-budget" className="text-emerald-500 text-sm font-medium hover:underline">
+                                Set your first budget
+                            </Link>
                         </div>
                     )}
                 </div>
             </div>
+
         </div>
     )
 }
