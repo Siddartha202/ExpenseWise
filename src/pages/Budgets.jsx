@@ -87,7 +87,7 @@ export function Budgets() {
     return (
         <div className="max-w-4xl mx-auto space-y-8">
             <header>
-                <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-black tracking-tight flex items-center gap-3">
                     <PieChart className="text-purple-500 w-8 h-8" />
                     Budgets & Limits
                 </h1>
@@ -153,43 +153,87 @@ export function Budgets() {
                     </form>
                 </div>
 
-                {/* Active Budgets Overview */}
-                <div className="lg:col-span-2 space-y-4">
-                    <h2 className="text-xl font-bold text-white mb-4">Current Budgets Overview</h2>
+                {/* Active Budgets Overview - Grouped by Month */}
+                <div className="lg:col-span-2 space-y-6">
+                    <h2 className="text-xl font-bold text-black mb-4">Current Budgets Overview</h2>
 
-                    {budgets.map(b => {
-                        const isOver = b.spent > b.amount
-                        const percentage = Math.min((b.spent / b.amount) * 100, 100)
+                    {(() => {
+                        // Group budgets by month
+                        const grouped = budgets.reduce((acc, b) => {
+                            const monthKey = b.month.slice(0, 7) // "2026-03"
+                            if (!acc[monthKey]) acc[monthKey] = []
+                            acc[monthKey].push(b)
+                            return acc
+                        }, {})
 
-                        return (
-                            <div key={b.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm group hover:border-slate-700 transition-colors">
-                                <div className="flex justify-between items-center mb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`p-2 rounded-lg ${isOver ? 'bg-rose-500/10' : 'bg-emerald-500/10'}`}>
-                                            {isOver ? <AlertTriangle className="w-5 h-5 text-rose-500" /> : <CheckCircle className="w-5 h-5 text-emerald-500" />}
+                        // Sort months in descending order (newest first)
+                        const sortedMonths = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
+
+                        if (sortedMonths.length === 0) {
+                            return (
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
+                                    <Target className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                                    <p className="text-slate-400">No budgets set yet. Create one to start tracking!</p>
+                                </div>
+                            )
+                        }
+
+                        return sortedMonths.map(monthKey => {
+                            const monthBudgets = grouped[monthKey]
+                            const monthLabel = new Date(monthKey + '-01').toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
+                            const totalLimit = monthBudgets.reduce((s, b) => s + Number(b.amount), 0)
+                            const totalSpent = monthBudgets.reduce((s, b) => s + Number(b.spent), 0)
+
+                            return (
+                                <div key={monthKey} className="space-y-3">
+                                    {/* Month Header */}
+                                    <div className="flex items-center justify-between bg-slate-800/60 rounded-xl px-4 py-3 border border-slate-700/50">
+                                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                            📅 {monthLabel}
+                                        </h3>
+                                        <div className="text-sm text-slate-400">
+                                            Total: <span className={totalSpent > totalLimit ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>₹{totalSpent.toLocaleString()}</span> / ₹{totalLimit.toLocaleString()}
                                         </div>
-                                        <h3 className="text-lg font-bold text-white">{b.category}</h3>
                                     </div>
-                                    <div className="text-right">
-                                        <div className="text-sm text-slate-400">₹{b.spent} / ₹{b.amount}</div>
-                                    </div>
-                                </div>
 
-                                <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden">
-                                    <div
-                                        className={`h-full rounded-full transition-all duration-1000 ${isOver ? 'bg-rose-500' : 'bg-emerald-500'}`}
-                                        style={{ width: `${percentage}%` }}
-                                    ></div>
-                                </div>
+                                    {/* Category Budgets for this month */}
+                                    {monthBudgets.map(b => {
+                                        const isOver = b.spent > b.amount
+                                        const percentage = Math.min((b.spent / b.amount) * 100, 100)
 
-                                {isOver && (
-                                    <p className="text-rose-400 text-xs font-medium mt-3 flex items-center gap-1">
-                                        <AlertTriangle className="w-3 h-3" /> Over budget by ₹{b.spent - b.amount}
-                                    </p>
-                                )}
-                            </div>
-                        )
-                    })}
+                                        return (
+                                            <div key={b.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm group hover:border-slate-700 transition-colors">
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`p-2 rounded-lg ${isOver ? 'bg-rose-500/10' : 'bg-emerald-500/10'}`}>
+                                                            {isOver ? <AlertTriangle className="w-5 h-5 text-rose-500" /> : <CheckCircle className="w-5 h-5 text-emerald-500" />}
+                                                        </div>
+                                                        <h3 className="text-lg font-bold text-white">{b.category}</h3>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="text-sm text-slate-400">₹{b.spent.toLocaleString()} / ₹{b.amount.toLocaleString()}</div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden">
+                                                    <div
+                                                        className={`h-full rounded-full transition-all duration-1000 ${isOver ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                                                        style={{ width: `${percentage}%` }}
+                                                    ></div>
+                                                </div>
+
+                                                {isOver && (
+                                                    <p className="text-rose-400 text-xs font-medium mt-3 flex items-center gap-1">
+                                                        <AlertTriangle className="w-3 h-3" /> Over budget by ₹{(b.spent - b.amount).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )
+                        })
+                    })()}
                 </div>
             </div>
         </div>

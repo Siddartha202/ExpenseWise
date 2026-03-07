@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Wallet, TrendingUp, TrendingDown, Hash, Pointer, Plus, Minus } from 'lucide-react'
+import { Wallet, TrendingUp, TrendingDown, Hash, Pointer, Plus, Minus, AlertTriangle, CheckCircle, Target } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend } from 'recharts'
 import { supabase } from '../lib/supabase'
@@ -63,14 +63,21 @@ export function Dashboard() {
 
                 setPieData(Object.entries(categoryTotals).map(([name, value]) => ({ name, value })))
 
-                // 4. Fetch Budgets
+                // 4. Fetch Budgets and enrich with spent amounts
                 const { data: budgetData, error: budgetError } = await supabase
                     .from('budgets')
                     .select('*')
                     .eq('profile_id', activeProfile.id)
 
                 if (!budgetError && budgetData) {
-                    setBudgets(budgetData)
+                    const enrichedBudgets = budgetData.map(b => {
+                        const budgetMonth = b.month.slice(0, 7)
+                        const spent = transactions
+                            .filter(t => t.type === 'expense' && t.category === b.category && t.date.startsWith(budgetMonth))
+                            .reduce((sum, t) => sum + Number(t.amount), 0)
+                        return { ...b, spent }
+                    })
+                    setBudgets(enrichedBudgets)
                 }
 
             } catch (err) {
@@ -197,49 +204,97 @@ export function Dashboard() {
                 </div>
             </div>
 
-            {/* Monthly Budgets */}
+            {/* Monthly Budgets - Grouped by Month */}
             <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)]">
-                <h3 className="text-lg font-medium text-slate-800 mb-5">Monthly Budgets — {currentMonthLabel}</h3>
-
-                <div className="space-y-4">
-                    {budgets.length > 0 ? (
-                        budgets.map((b) => {
-                            // Map categories to emojis similarly to user's implementation
-                            const emojis = {
-                                'Food': '🍕',
-                                'Transport': '🚗',
-                                'Bills': '🧾',
-                                'Entertainment': '🎮',
-                                'Shopping': '🛍️',
-                                'Health': '💊',
-                                'Other': '📦'
-                            }
-                            const emoji = emojis[b.category] || '📦'
-
-                            return (
-                                <div key={b.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 last:pb-0">
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-xl">{emoji}</span>
-                                        <span className="font-medium text-slate-700">{b.category}</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-slate-500 font-medium">₹{Number(b.amount).toLocaleString()}</span>
-                                        <Link to="/set-budget" className="text-sm font-medium text-emerald-500 hover:text-emerald-600">
-                                            Set budget
-                                        </Link>
-                                    </div>
-                                </div>
-                            )
-                        })
-                    ) : (
-                        <div className="text-center py-6">
-                            <p className="text-slate-400 text-sm mb-3">No budgets set for this month</p>
-                            <Link to="/set-budget" className="text-emerald-500 text-sm font-medium hover:underline">
-                                Set your first budget
-                            </Link>
-                        </div>
-                    )}
+                <div className="flex items-center justify-between mb-5">
+                    <h3 className="text-lg font-medium text-slate-800">Monthly Budgets</h3>
+                    <Link to="/set-budget" className="text-sm font-medium text-emerald-500 hover:text-emerald-600">
+                        + Set Budget
+                    </Link>
                 </div>
+
+                {(() => {
+                    if (budgets.length === 0) {
+                        return (
+                            <div className="text-center py-6">
+                                <Target className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                                <p className="text-slate-400 text-sm mb-3">No budgets set yet</p>
+                                <Link to="/set-budget" className="text-emerald-500 text-sm font-medium hover:underline">
+                                    Set your first budget
+                                </Link>
+                            </div>
+                        )
+                    }
+
+                    // Group budgets by month
+                    const grouped = budgets.reduce((acc, b) => {
+                        const monthKey = b.month.slice(0, 7)
+                        if (!acc[monthKey]) acc[monthKey] = []
+                        acc[monthKey].push(b)
+                        return acc
+                    }, {})
+
+                    const sortedMonths = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
+
+                    return (
+                        <div className="space-y-5">
+                            {sortedMonths.map(monthKey => {
+                                const monthBudgets = grouped[monthKey]
+                                const monthLabel = new Date(monthKey + '-01').toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
+                                const totalLimit = monthBudgets.reduce((s, b) => s + Number(b.amount), 0)
+                                const totalSpent = monthBudgets.reduce((s, b) => s + Number(b.spent || 0), 0)
+
+                                return (
+                                    <div key={monthKey}>
+                                        {/* Month Header */}
+                                        <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2.5 mb-3 border border-slate-100">
+                                            <span className="font-bold text-slate-700 text-sm">📅 {monthLabel}</span>
+                                            <span className="text-xs text-slate-500">
+                                                <span className={totalSpent > totalLimit ? 'text-rose-500 font-bold' : 'text-emerald-500 font-bold'}>₹{totalSpent.toLocaleString()}</span> / ₹{totalLimit.toLocaleString()}
+                                            </span>
+                                        </div>
+
+                                        {/* Category budgets */}
+                                        <div className="space-y-3 pl-1">
+                                            {monthBudgets.map(b => {
+                                                const spent = b.spent || 0
+                                                const isOver = spent > b.amount
+                                                const percentage = Math.min((spent / b.amount) * 100, 100)
+                                                const emojis = { 'Food': '🍕', 'Transport': '🚗', 'Bills': '🧾', 'Entertainment': '🎮', 'Shopping': '🛍️', 'Health': '💊', 'Other': '📦' }
+
+                                                return (
+                                                    <div key={b.id}>
+                                                        <div className="flex items-center justify-between mb-1.5">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-base">{emojis[b.category] || '📦'}</span>
+                                                                <span className="font-medium text-slate-700 text-sm">{b.category}</span>
+                                                                {isOver && <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />}
+                                                            </div>
+                                                            <span className={`text-xs font-medium ${isOver ? 'text-rose-500' : 'text-slate-500'}`}>
+                                                                ₹{spent.toLocaleString()} / ₹{Number(b.amount).toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full rounded-full transition-all duration-700 ${isOver ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                                                                style={{ width: `${percentage}%` }}
+                                                            />
+                                                        </div>
+                                                        {isOver && (
+                                                            <p className="text-rose-500 text-[11px] font-medium mt-1">
+                                                                Over by ₹{(spent - b.amount).toLocaleString()}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )
+                })()}
             </div>
 
         </div>

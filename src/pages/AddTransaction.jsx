@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Plus, ArrowRightLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { Plus, ArrowRightLeft, ArrowUpRight, ArrowDownRight, AlertTriangle, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -21,6 +21,8 @@ export function AddTransaction() {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0])
     const [loading, setLoading] = useState(false)
     const [message, setMessage] = useState('')
+    const [note, setNote] = useState('')
+    const [budgetAlert, setBudgetAlert] = useState(null)
 
     useEffect(() => {
         if (typeParam === 'income' || typeParam === 'expense') {
@@ -30,10 +32,66 @@ export function AddTransaction() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [typeParam])
 
+    // Auto-dismiss budget alert after 6 seconds
+    useEffect(() => {
+        if (budgetAlert) {
+            const timer = setTimeout(() => setBudgetAlert(null), 6000)
+            return () => clearTimeout(timer)
+        }
+    }, [budgetAlert])
+
+    const checkBudgetLimit = async (expenseCategory, expenseDate) => {
+        try {
+            const expenseMonth = expenseDate.slice(0, 7) // "2026-03"
+
+            // Check if there's a budget set for this category & month
+            const { data: budgetData, error: budgetError } = await supabase
+                .from('budgets')
+                .select('amount')
+                .eq('profile_id', activeProfile.id)
+                .eq('category', expenseCategory)
+                .eq('month', expenseMonth + '-01')
+                .maybeSingle()
+
+            if (budgetError || !budgetData) return false
+
+            const budgetLimit = budgetData.amount
+
+            // Sum all expenses for this category in this month
+            const { data: expenses, error: expError } = await supabase
+                .from('transactions')
+                .select('amount')
+                .eq('profile_id', activeProfile.id)
+                .eq('type', 'expense')
+                .eq('category', expenseCategory)
+                .gte('date', expenseMonth + '-01')
+                .lt('date', expenseMonth === '2026-12' ? '2027-01-01' : expenseMonth.slice(0, 5) + String(Number(expenseMonth.slice(5, 7)) + 1).padStart(2, '0') + '-01')
+
+            if (expError) return false
+
+            const totalSpent = expenses.reduce((sum, t) => sum + Number(t.amount), 0)
+
+            if (totalSpent > budgetLimit) {
+                setBudgetAlert({
+                    category: expenseCategory,
+                    spent: totalSpent,
+                    limit: budgetLimit,
+                    overBy: totalSpent - budgetLimit
+                })
+                return true
+            }
+            return false
+        } catch (err) {
+            console.error('Budget check error:', err)
+            return false
+        }
+    }
+
     const handleSubmit = async (e) => {
         e.preventDefault()
         setLoading(true)
         setMessage('')
+        setBudgetAlert(null)
 
         try {
             const { error } = await supabase.from('transactions').insert([
@@ -43,7 +101,8 @@ export function AddTransaction() {
                     type,
                     category,
                     amount: parseFloat(amount),
-                    date
+                    date,
+                    note: category === 'Other' && note.trim() ? note.trim() : null
                 }
             ])
 
@@ -51,11 +110,18 @@ export function AddTransaction() {
 
             setMessage('Transaction added successfully! 🎉')
             setAmount('')
+            setNote('')
 
-            // Redirect back to dashboard after a short delay
+            // Check budget limit if this was an expense
+            let isOverBudget = false
+            if (type === 'expense') {
+                isOverBudget = await checkBudgetLimit(category, date)
+            }
+
+            // Redirect back to dashboard after a short delay (longer if budget alert)
             setTimeout(() => {
                 navigate('/')
-            }, 1500)
+            }, isOverBudget ? 6000 : 1500)
 
         } catch (error) {
             console.error(error)
@@ -67,6 +133,55 @@ export function AddTransaction() {
 
     return (
         <div className="max-w-3xl mx-auto space-y-6">
+            {/* Budget Limit Exceeded Pop-up */}
+            {budgetAlert && (
+                <div
+                    className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-lg"
+                    style={{ animation: 'slideDown 0.4s ease-out' }}
+                >
+                    <div className="bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-2xl shadow-2xl p-4 sm:p-5 border border-rose-500/30">
+                        <div className="flex items-start gap-3">
+                            <div className="bg-white/20 backdrop-blur-sm p-2 rounded-xl flex-shrink-0">
+                                <AlertTriangle className="w-6 h-6" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-bold text-lg">⚠️ Budget Limit Exceeded!</h3>
+                                <p className="text-rose-100 text-sm mt-1">
+                                    You've exceeded your <strong>{budgetAlert.category}</strong> budget for this month.
+                                </p>
+                                <div className="flex gap-4 mt-3 text-sm">
+                                    <div className="bg-white/15 rounded-lg px-3 py-1.5">
+                                        <span className="text-rose-200">Spent:</span>{' '}
+                                        <strong>₹{budgetAlert.spent.toLocaleString()}</strong>
+                                    </div>
+                                    <div className="bg-white/15 rounded-lg px-3 py-1.5">
+                                        <span className="text-rose-200">Limit:</span>{' '}
+                                        <strong>₹{budgetAlert.limit.toLocaleString()}</strong>
+                                    </div>
+                                </div>
+                                <p className="font-bold text-sm mt-2">
+                                    🚨 Over by ₹{budgetAlert.overBy.toLocaleString()}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setBudgetAlert(null)}
+                                className="bg-white/20 hover:bg-white/30 rounded-lg p-1.5 transition-colors flex-shrink-0"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Slide down animation */}
+            <style>{`
+                @keyframes slideDown {
+                    from { opacity: 0; transform: translate(-50%, -20px); }
+                    to { opacity: 1; transform: translate(-50%, 0); }
+                }
+            `}</style>
+
             <header className="mb-6">
                 <h1 className="text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-3">
                     <ArrowRightLeft className="text-emerald-500 w-8 h-8" />
@@ -162,6 +277,20 @@ export function AddTransaction() {
                             ))}
                         </div>
                     </div>
+
+                    {/* Purpose/Note field - shown when 'Other' is selected */}
+                    {category === 'Other' && (
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">Purpose / Message</label>
+                            <input
+                                type="text"
+                                className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-slate-900 placeholder-slate-400 transition-all outline-none"
+                                placeholder="What is this for? e.g. Gift for friend, Miscellaneous purchase..."
+                                value={note}
+                                onChange={(e) => setNote(e.target.value)}
+                            />
+                        </div>
+                    )}
 
                     <button
                         type="submit"
